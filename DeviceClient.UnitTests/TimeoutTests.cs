@@ -264,7 +264,7 @@ namespace DeviceClientTesting.UnitTests
 
                 // 12. AMQP - short receive timeout
                 // CancellationToken: no
-                // Timeout: 100ms
+                // Timeout: 50ms
                 // operations timeout: default (60s)
                 // forced cleanup: true
                 yield return new object[] { TransportType.Amqp_Tcp_Only, 50, -1, false, true };
