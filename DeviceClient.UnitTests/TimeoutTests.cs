@@ -1,18 +1,18 @@
-using NUnit.Framework;
-using System.Collections.Generic;
-using Microsoft.Azure.Devices.Client;
-using Microsoft.Azure.Devices.Client.Transport.Mqtt;
-using System.Threading.Tasks;
-using System;
-using System.Threading;
-using System.Diagnostics;
-using System.Text;
-
-using hub = Microsoft.Azure.Devices;
-using Microsoft.Azure.Devices.Client.Exceptions;
-
 namespace DeviceClientTesting.UnitTests
 {
+    using NUnit.Framework;
+    using System.Collections.Generic;
+    using Microsoft.Azure.Devices.Client;
+    using Microsoft.Azure.Devices.Client.Transport.Mqtt;
+    using System.Threading.Tasks;
+    using System;
+    using System.Threading;
+    using System.Diagnostics;
+    using System.Text;
+
+    using hub = Microsoft.Azure.Devices;
+    using Microsoft.Azure.Devices.Client.Exceptions;
+
     public class TimeoutTests
     {
         private static int deviceIdSuffix;
@@ -82,7 +82,7 @@ namespace DeviceClientTesting.UnitTests
 
                         if (!forcedTimeout)
                         {
-                            Console.WriteLine($"{nameof(deviceClient.ReceiveAsync)} returned after {sw.Elapsed.TotalSeconds}sec");
+                            Console.WriteLine($"{nameof(deviceClient.ReceiveAsync)} returned after {sw.Elapsed.TotalMilliseconds}ms");
 
                             if (receivedMessage == null)
                             {
@@ -264,9 +264,12 @@ namespace DeviceClientTesting.UnitTests
 
                 // 12. AMQP - short receive timeout
                 // CancellationToken: no
-                // Timeout: 50ms
+                // Timeout: 500ms
                 // operations timeout: default (60s)
                 // forced cleanup: true
+                yield return new object[] { TransportType.Amqp_Tcp_Only, 500, -1, false, true };
+                yield return new object[] { TransportType.Amqp_WebSocket_Only, 500, -1, false, true };
+
                 yield return new object[] { TransportType.Amqp_Tcp_Only, 50, -1, false, true };
                 yield return new object[] { TransportType.Amqp_WebSocket_Only, 50, -1, false, true };
             }
