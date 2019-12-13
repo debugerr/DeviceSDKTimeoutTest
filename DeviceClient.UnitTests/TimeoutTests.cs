@@ -16,6 +16,7 @@ namespace DeviceClientTesting.UnitTests
 {
     public class TimeoutTests
     {
+        private static int DefaultReceiveAsyncTimeoutInMs = 5_000;
         private static int deviceIdSuffix;
         private hub.RegistryManager registryManager;
         private List<Device> activeDevices = new List<Device>();
@@ -30,9 +31,8 @@ namespace DeviceClientTesting.UnitTests
                                                                             bool useToken,
                                                                             bool forceCleanupIfNoTimeout)
         {
-            const int receiveAsyncTimeoutInMs = 5_000;
+            
             var device = await GetDevice();
-
             double receiveAsyncCompletedAfterMs = 0;
 
             try
@@ -44,7 +44,7 @@ namespace DeviceClientTesting.UnitTests
 
                 var timeoutTestTask = Task.Run(async () =>
                 {
-                    using (var cts = new CancellationTokenSource(receiveAsyncTimeoutInMs))
+                    using (var cts = new CancellationTokenSource(DefaultReceiveAsyncTimeoutInMs))
                     {
                         var sw = Stopwatch.StartNew();
                         hub.Client.Message receivedMessage = null;
@@ -63,8 +63,8 @@ namespace DeviceClientTesting.UnitTests
                             }
                             else
                             {
-                                Console.WriteLine($"use timeout: {receiveAsyncTimeoutInMs}");
-                                receivedMessage = await deviceClient.ReceiveAsync(TimeSpan.FromMilliseconds(receiveAsyncTimeoutInMs));
+                                Console.WriteLine($"use timeout: {DefaultReceiveAsyncTimeoutInMs}");
+                                receivedMessage = await deviceClient.ReceiveAsync(TimeSpan.FromMilliseconds(DefaultReceiveAsyncTimeoutInMs));
                             }
                         }
                         catch (OperationCanceledException)
@@ -87,7 +87,7 @@ namespace DeviceClientTesting.UnitTests
 
                             if (receivedMessage == null)
                             {
-                                Console.WriteLine($"\t timed out: {transportType}, {operationsTimeoutInMilliseconds}, {useToken}, {receiveAsyncTimeoutInMs}");
+                                Console.WriteLine($"\t timed out: {transportType}, {operationsTimeoutInMilliseconds}, {useToken}, {DefaultReceiveAsyncTimeoutInMs}");
                             }
                             else
                             {
@@ -103,13 +103,13 @@ namespace DeviceClientTesting.UnitTests
 
                 if (forceCleanupIfNoTimeout)
                 {
-                    var result = await Task.WhenAny(timeoutTestTask, Task.Delay(receiveAsyncTimeoutInMs + 2_000));
+                    var result = await Task.WhenAny(timeoutTestTask, Task.Delay(DefaultReceiveAsyncTimeoutInMs + 2_000));
 
                     Assert.AreEqual(timeoutTestTask, result, "Did not timeout");
 
                     if (result == timeoutTestTask)
                     {
-                        var diff = Math.Abs(receiveAsyncTimeoutInMs - receiveAsyncCompletedAfterMs);
+                        var diff = receiveAsyncCompletedAfterMs - DefaultReceiveAsyncTimeoutInMs;
                         Assert.IsTrue(diff < 1_000, $"Timeout occured, but too late: {diff}");
                     }
                     else
@@ -121,6 +121,8 @@ namespace DeviceClientTesting.UnitTests
                 else
                 {
                     await timeoutTestTask;
+                    var diff = receiveAsyncCompletedAfterMs - DefaultReceiveAsyncTimeoutInMs;
+                    Assert.IsTrue(diff < 1_000, $"Timeout occured, but too late: {diff}");
                 }
 
                 deviceClient.Dispose();
@@ -142,8 +144,7 @@ namespace DeviceClientTesting.UnitTests
                     var amqp = new AmqpTransportSettings(transportType);
                     if (operationsTimeoutInMilliseconds > 0)
                     {
-                        amqp.OperationTimeout = TimeSpan.FromMilliseconds(operationsTimeoutInMilliseconds);
-                        amqp.OpenTimeout = TimeSpan.FromMilliseconds(operationsTimeoutInMilliseconds);
+                        amqp.OpenTimeout = amqp.OperationTimeout = TimeSpan.FromMilliseconds(operationsTimeoutInMilliseconds);
                     }
                     Console.WriteLine($"AMQP settings: {nameof(amqp.OperationTimeout)}: {amqp.OperationTimeout}, {nameof(amqp.OpenTimeout)}: {amqp.OpenTimeout}");
                     tp = amqp;
@@ -155,10 +156,8 @@ namespace DeviceClientTesting.UnitTests
                     if (operationsTimeoutInMilliseconds > 0)
                     {
                         mqtt.DefaultReceiveTimeout = TimeSpan.FromMilliseconds(operationsTimeoutInMilliseconds);
-                        mqtt.DeviceReceiveAckCanTimeout = true;
-                        mqtt.DeviceReceiveAckTimeout = TimeSpan.FromMilliseconds(operationsTimeoutInMilliseconds);
                     }
-                    Console.WriteLine($"MQTT settings: {nameof(mqtt.DefaultReceiveTimeout)}: {mqtt.DefaultReceiveTimeout}, {nameof(mqtt.DeviceReceiveAckTimeout)}: {mqtt.DeviceReceiveAckTimeout}");
+                    Console.WriteLine($"MQTT settings: {nameof(mqtt.DefaultReceiveTimeout)}: {mqtt.DefaultReceiveTimeout}");
                     tp = mqtt;
                     break;
             }
@@ -185,14 +184,12 @@ namespace DeviceClientTesting.UnitTests
                 // operations timeout: default
                 yield return new object[] { hub.Client.TransportType.Amqp_Tcp_Only, -1, true, true};
                 yield return new object[] { hub.Client.TransportType.Amqp_WebSocket_Only, -1, true, true};
-                // yield return new object[] { hub.Client.TransportType.Amqp, -1, true, true};
 
                 // 2. MQTT:
                 // CancellationToken: yes (5s timeout)
                 // operations timeout: default
                 yield return new object[] { hub.Client.TransportType.Mqtt_Tcp_Only, -1, true, true};
                 yield return new object[] { hub.Client.TransportType.Mqtt_WebSocket_Only, -1, true, true};
-                // yield return new object[] { hub.Client.TransportType.Mqtt, -1, true, true};
 
                 // 3. AMQP:
                 // CancellationToken: no
@@ -200,7 +197,6 @@ namespace DeviceClientTesting.UnitTests
                 // operations timeout: default
                 yield return new object[] { hub.Client.TransportType.Amqp_Tcp_Only, -1, false, true};
                 yield return new object[] { hub.Client.TransportType.Amqp_WebSocket_Only, -1, false, true};
-                // yield return new object[] { hub.Client.TransportType.Amqp, -1, false, true};
 
                 // 4. MQTT:
                 // CancellationToken: no
@@ -208,7 +204,6 @@ namespace DeviceClientTesting.UnitTests
                 // operations timeout: default
                 yield return new object[] { hub.Client.TransportType.Mqtt_Tcp_Only, -1, false, true};
                 yield return new object[] { hub.Client.TransportType.Mqtt_WebSocket_Only, -1, false, true};
-                // yield return new object[] { hub.Client.TransportType.Mqtt, -1, false, true};
 
                 // 5. AMQP:
                 // CancellationToken: yes (5s timeout)
@@ -241,8 +236,8 @@ namespace DeviceClientTesting.UnitTests
                 // Timeout: (5s default)
                 // operations timeout: default
                 // forced cleanup: false
-                yield return new object[] { hub.Client.TransportType.Amqp_Tcp_Only, -1, false, false };
-                yield return new object[] { hub.Client.TransportType.Amqp_WebSocket_Only, -1, false, false };
+                yield return new object[] { hub.Client.TransportType.Amqp_Tcp_Only, DefaultReceiveAsyncTimeoutInMs - 1_000, false, false };
+                yield return new object[] { hub.Client.TransportType.Amqp_WebSocket_Only, DefaultReceiveAsyncTimeoutInMs - 1_000, false, false };
 
                 // 10. AMQP
                 // CancellationToken: yes (5s default)
@@ -251,6 +246,22 @@ namespace DeviceClientTesting.UnitTests
                 // forced cleanup: false
                 yield return new object[] { hub.Client.TransportType.Amqp_Tcp_Only, -1, true, false };
                 yield return new object[] { hub.Client.TransportType.Amqp_WebSocket_Only, -1, true, false };
+
+                // 11. AMQP - set operations timeout to the same as the receive timeout: 5s
+                // CancellationToken: yes (5s default)
+                // Timeout: no
+                // operations timeout: 5s
+                // forced cleanup: false
+                yield return new object[] { hub.Client.TransportType.Amqp_Tcp_Only, 5_000, true, false };
+                yield return new object[] { hub.Client.TransportType.Amqp_WebSocket_Only, 5_000, true, false };
+
+                // 11. AMQP - set operations timeout to the less as the receive timeout: 4s
+                // CancellationToken: yes (5s default)
+                // Timeout: no
+                // operations timeout: 4s
+                // forced cleanup: false
+                yield return new object[] { hub.Client.TransportType.Amqp_Tcp_Only, DefaultReceiveAsyncTimeoutInMs - 1_000, true, false };
+                yield return new object[] { hub.Client.TransportType.Amqp_WebSocket_Only, DefaultReceiveAsyncTimeoutInMs - 1_000, true, false };
             }
         }
 
