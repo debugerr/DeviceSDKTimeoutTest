@@ -145,6 +145,7 @@ namespace DeviceClientTesting.UnitTests
                         amqp.OperationTimeout = TimeSpan.FromMilliseconds(operationsTimeoutInMilliseconds);
                         amqp.OpenTimeout = TimeSpan.FromMilliseconds(operationsTimeoutInMilliseconds);
                     }
+                    Console.WriteLine($"AMQP settings: {nameof(amqp.OperationTimeout)}: {amqp.OperationTimeout}, {nameof(amqp.OpenTimeout)}: {amqp.OpenTimeout}");
                     tp = amqp;
                     break;
                 case hub.Client.TransportType.Mqtt_Tcp_Only:
@@ -157,6 +158,7 @@ namespace DeviceClientTesting.UnitTests
                         mqtt.DeviceReceiveAckCanTimeout = true;
                         mqtt.DeviceReceiveAckTimeout = TimeSpan.FromMilliseconds(operationsTimeoutInMilliseconds);
                     }
+                    Console.WriteLine($"MQTT settings: {nameof(mqtt.DefaultReceiveTimeout)}: {mqtt.DefaultReceiveTimeout}, {nameof(mqtt.DeviceReceiveAckTimeout)}: {mqtt.DeviceReceiveAckTimeout}");
                     tp = mqtt;
                     break;
             }
@@ -241,6 +243,14 @@ namespace DeviceClientTesting.UnitTests
                 // forced cleanup: false
                 yield return new object[] { hub.Client.TransportType.Amqp_Tcp_Only, -1, false, false };
                 yield return new object[] { hub.Client.TransportType.Amqp_WebSocket_Only, -1, false, false };
+
+                // 10. AMQP
+                // CancellationToken: yes (5s default)
+                // Timeout: no
+                // operations timeout: default
+                // forced cleanup: false
+                yield return new object[] { hub.Client.TransportType.Amqp_Tcp_Only, -1, true, false };
+                yield return new object[] { hub.Client.TransportType.Amqp_WebSocket_Only, -1, true, false };
             }
         }
 
