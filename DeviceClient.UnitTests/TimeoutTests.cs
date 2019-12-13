@@ -7,7 +7,6 @@ using System;
 using System.Threading;
 using System.Diagnostics;
 using System.Text;
-using Microsoft.Azure.Devices;
 
 using hub = Microsoft.Azure.Devices;
 using Microsoft.Azure.Devices.Client.Exceptions;
@@ -16,17 +15,17 @@ namespace DeviceClientTesting.UnitTests
 {
     public class TimeoutTests
     {
-        private static int DefaultReceiveAsyncTimeoutInMs = 5_000;
         private static int deviceIdSuffix;
         private hub.RegistryManager registryManager;
-        private List<Device> activeDevices = new List<Device>();
+        private List<hub.Device> activeDevices = new List<hub.Device>();
         private SemaphoreSlim activeDeviceSync = new SemaphoreSlim(1, 1);
 
         [Test]
-        [Timeout(260_000)] // default operation timeout for AMQP is 4min - see if we block even longer
+        [Timeout(260_000)] // default OperationTimeout on DeviceClient is 240s
         [TestCaseSource(typeof(TimeoutTests), nameof(TestCasesParameters))]
         public async Task ReceiveAsync_Should_Timeout_When_No_Messages_Are_Ready(
-                                                                            hub.Client.TransportType transportType,
+                                                                            TransportType transportType,
+                                                                            int receiveAsyncTimeoutInMs,
                                                                             int operationsTimeoutInMilliseconds,
                                                                             bool useToken,
                                                                             bool forceCleanupIfNoTimeout)
@@ -44,7 +43,7 @@ namespace DeviceClientTesting.UnitTests
 
                 var timeoutTestTask = Task.Run(async () =>
                 {
-                    using (var cts = new CancellationTokenSource(DefaultReceiveAsyncTimeoutInMs))
+                    using (var cts = new CancellationTokenSource(receiveAsyncTimeoutInMs))
                     {
                         var sw = Stopwatch.StartNew();
                         hub.Client.Message receivedMessage = null;
@@ -63,8 +62,8 @@ namespace DeviceClientTesting.UnitTests
                             }
                             else
                             {
-                                Console.WriteLine($"use timeout: {DefaultReceiveAsyncTimeoutInMs}");
-                                receivedMessage = await deviceClient.ReceiveAsync(TimeSpan.FromMilliseconds(DefaultReceiveAsyncTimeoutInMs));
+                                Console.WriteLine($"use timeout: {receiveAsyncTimeoutInMs}");
+                                receivedMessage = await deviceClient.ReceiveAsync(TimeSpan.FromMilliseconds(receiveAsyncTimeoutInMs));
                             }
                         }
                         catch (OperationCanceledException)
@@ -87,7 +86,7 @@ namespace DeviceClientTesting.UnitTests
 
                             if (receivedMessage == null)
                             {
-                                Console.WriteLine($"\t timed out: {transportType}, {operationsTimeoutInMilliseconds}, {useToken}, {DefaultReceiveAsyncTimeoutInMs}");
+                                Console.WriteLine($"\t timed out: {transportType}, {operationsTimeoutInMilliseconds}, {useToken}, {receiveAsyncTimeoutInMs}");
                             }
                             else
                             {
@@ -103,13 +102,13 @@ namespace DeviceClientTesting.UnitTests
 
                 if (forceCleanupIfNoTimeout)
                 {
-                    var result = await Task.WhenAny(timeoutTestTask, Task.Delay(DefaultReceiveAsyncTimeoutInMs + 2_000));
+                    var result = await Task.WhenAny(timeoutTestTask, Task.Delay(receiveAsyncTimeoutInMs + 2_000));
 
                     Assert.AreEqual(timeoutTestTask, result, "Did not timeout");
 
                     if (result == timeoutTestTask)
                     {
-                        var diff = receiveAsyncCompletedAfterMs - DefaultReceiveAsyncTimeoutInMs;
+                        var diff = receiveAsyncCompletedAfterMs - receiveAsyncTimeoutInMs;
                         Assert.IsTrue(diff < 1_000, $"Timeout occured, but too late: {diff}");
                     }
                     else
@@ -121,7 +120,7 @@ namespace DeviceClientTesting.UnitTests
                 else
                 {
                     await timeoutTestTask;
-                    var diff = receiveAsyncCompletedAfterMs - DefaultReceiveAsyncTimeoutInMs;
+                    var diff = receiveAsyncCompletedAfterMs - receiveAsyncTimeoutInMs;
                     Assert.IsTrue(diff < 1_000, $"Timeout occured, but too late: {diff}");
                 }
 
@@ -133,14 +132,14 @@ namespace DeviceClientTesting.UnitTests
             }
         }
 
-        private static DeviceClient SetupDeviceClient(hub.Client.TransportType transportType, int operationsTimeoutInMilliseconds, Device device)
+        private static DeviceClient SetupDeviceClient(TransportType transportType, int operationsTimeoutInMilliseconds, hub.Device device)
         {
             ITransportSettings tp = null;
             switch (transportType)
             {
-                case hub.Client.TransportType.Amqp_Tcp_Only:
-                case hub.Client.TransportType.Amqp_WebSocket_Only:
-                case hub.Client.TransportType.Amqp:
+                case TransportType.Amqp_Tcp_Only:
+                case TransportType.Amqp_WebSocket_Only:
+                case TransportType.Amqp:
                     var amqp = new AmqpTransportSettings(transportType);
                     if (operationsTimeoutInMilliseconds > 0)
                     {
@@ -149,9 +148,9 @@ namespace DeviceClientTesting.UnitTests
                     Console.WriteLine($"AMQP settings: {nameof(amqp.OperationTimeout)}: {amqp.OperationTimeout}, {nameof(amqp.OpenTimeout)}: {amqp.OpenTimeout}");
                     tp = amqp;
                     break;
-                case hub.Client.TransportType.Mqtt_Tcp_Only:
-                case hub.Client.TransportType.Mqtt_WebSocket_Only:
-                case hub.Client.TransportType.Mqtt:
+                case TransportType.Mqtt_Tcp_Only:
+                case TransportType.Mqtt_WebSocket_Only:
+                case TransportType.Mqtt:
                     var mqtt = new MqttTransportSettings(transportType);
                     if (operationsTimeoutInMilliseconds > 0)
                     {
@@ -182,86 +181,94 @@ namespace DeviceClientTesting.UnitTests
                 // 1. AMQP:
                 // CancellationToken: yes (5s timeout)
                 // operations timeout: default
-                yield return new object[] { hub.Client.TransportType.Amqp_Tcp_Only, -1, true, true};
-                yield return new object[] { hub.Client.TransportType.Amqp_WebSocket_Only, -1, true, true};
+                yield return new object[] { TransportType.Amqp_Tcp_Only, 5_000, -1, true, true};
+                yield return new object[] { TransportType.Amqp_WebSocket_Only, 5_000, -1, true, true};
 
                 // 2. MQTT:
                 // CancellationToken: yes (5s timeout)
                 // operations timeout: default
-                yield return new object[] { hub.Client.TransportType.Mqtt_Tcp_Only, -1, true, true};
-                yield return new object[] { hub.Client.TransportType.Mqtt_WebSocket_Only, -1, true, true};
+                yield return new object[] { TransportType.Mqtt_Tcp_Only, 5_000, -1, true, true};
+                yield return new object[] { TransportType.Mqtt_WebSocket_Only, 5_000, -1, true, true};
 
                 // 3. AMQP:
                 // CancellationToken: no
                 // Timeout: (5s timeout)
                 // operations timeout: default
-                yield return new object[] { hub.Client.TransportType.Amqp_Tcp_Only, -1, false, true};
-                yield return new object[] { hub.Client.TransportType.Amqp_WebSocket_Only, -1, false, true};
+                yield return new object[] { TransportType.Amqp_Tcp_Only, 5_000, -1, false, true};
+                yield return new object[] { TransportType.Amqp_WebSocket_Only, 5_000, -1, false, true};
 
                 // 4. MQTT:
                 // CancellationToken: no
                 // Timeout: (5s timeout)
                 // operations timeout: default
-                yield return new object[] { hub.Client.TransportType.Mqtt_Tcp_Only, -1, false, true};
-                yield return new object[] { hub.Client.TransportType.Mqtt_WebSocket_Only, -1, false, true};
+                yield return new object[] { TransportType.Mqtt_Tcp_Only, 5_000, -1, false, true};
+                yield return new object[] { TransportType.Mqtt_WebSocket_Only, 5_000, -1, false, true};
 
                 // 5. AMQP:
                 // CancellationToken: yes (5s timeout)
                 // operations timeout: 2s
-                yield return new object[] { hub.Client.TransportType.Amqp_Tcp_Only, 2_000, true, true};
-                yield return new object[] { hub.Client.TransportType.Amqp_WebSocket_Only, 2_000, true, true};
+                yield return new object[] { TransportType.Amqp_Tcp_Only, 5_000, 2_000, true, true};
+                yield return new object[] { TransportType.Amqp_WebSocket_Only, 5_000, 2_000, true, true};
                 
                 // 6. MQTT:
                 // CancellationToken: yes (5s timeout)
                 // operations timeout: 2s
-                yield return new object[] { hub.Client.TransportType.Mqtt_Tcp_Only, 2_000, true, true };
-                yield return new object[] { hub.Client.TransportType.Mqtt_WebSocket_Only, 2_000, true, true };
+                yield return new object[] { TransportType.Mqtt_Tcp_Only, 5_000, 2_000, true, true };
+                yield return new object[] { TransportType.Mqtt_WebSocket_Only, 5_000, 2_000, true, true };
 
                 // 7. AMQP:
                 // CancellationToken: no
                 // Timeout: (5s default)
                 // operations timeout: 2s
-                yield return new object[] { hub.Client.TransportType.Amqp_Tcp_Only, 2_000, false, true };
-                yield return new object[] { hub.Client.TransportType.Amqp_WebSocket_Only, 2_000, false, true };
+                yield return new object[] { TransportType.Amqp_Tcp_Only, 5_000, 2_000, false, true };
+                yield return new object[] { TransportType.Amqp_WebSocket_Only, 5_000, 2_000, false, true };
 
                 // 8. MQTT:
                 // CancellationToken: no
                 // Timeout: (5s default)
                 // operations timeout: 2s
-                yield return new object[] { hub.Client.TransportType.Mqtt_Tcp_Only, 2_000, false, true };
-                yield return new object[] { hub.Client.TransportType.Mqtt_WebSocket_Only, 2_000, false, true };
+                yield return new object[] { TransportType.Mqtt_Tcp_Only, 5_000, 2_000, false, true };
+                yield return new object[] { TransportType.Mqtt_WebSocket_Only, 5_000, 2_000, false, true };
 
                 // 9. AMQP
                 // CancellationToken: no
                 // Timeout: (5s default)
                 // operations timeout: default
                 // forced cleanup: false
-                yield return new object[] { hub.Client.TransportType.Amqp_Tcp_Only, DefaultReceiveAsyncTimeoutInMs - 1_000, false, false };
-                yield return new object[] { hub.Client.TransportType.Amqp_WebSocket_Only, DefaultReceiveAsyncTimeoutInMs - 1_000, false, false };
+                yield return new object[] { TransportType.Amqp_Tcp_Only, 5_000, 4_000, false, false };
+                yield return new object[] { TransportType.Amqp_WebSocket_Only, 5_000, 4_000, false, false };
 
                 // 10. AMQP
                 // CancellationToken: yes (5s default)
                 // Timeout: no
                 // operations timeout: default
                 // forced cleanup: false
-                yield return new object[] { hub.Client.TransportType.Amqp_Tcp_Only, -1, true, false };
-                yield return new object[] { hub.Client.TransportType.Amqp_WebSocket_Only, -1, true, false };
+                yield return new object[] { TransportType.Amqp_Tcp_Only, 5_000, -1, true, false };
+                yield return new object[] { TransportType.Amqp_WebSocket_Only, 5_000, -1, true, false };
 
                 // 11. AMQP - set operations timeout to the same as the receive timeout: 5s
                 // CancellationToken: yes (5s default)
                 // Timeout: no
                 // operations timeout: 5s
                 // forced cleanup: false
-                yield return new object[] { hub.Client.TransportType.Amqp_Tcp_Only, 5_000, true, false };
-                yield return new object[] { hub.Client.TransportType.Amqp_WebSocket_Only, 5_000, true, false };
+                yield return new object[] { TransportType.Amqp_Tcp_Only, 5_000, 5_000, true, false };
+                yield return new object[] { TransportType.Amqp_WebSocket_Only, 5_000, 5_000, true, false };
 
                 // 11. AMQP - set operations timeout to the less as the receive timeout: 4s
                 // CancellationToken: yes (5s default)
                 // Timeout: no
                 // operations timeout: 4s
                 // forced cleanup: false
-                yield return new object[] { hub.Client.TransportType.Amqp_Tcp_Only, DefaultReceiveAsyncTimeoutInMs - 1_000, true, false };
-                yield return new object[] { hub.Client.TransportType.Amqp_WebSocket_Only, DefaultReceiveAsyncTimeoutInMs - 1_000, true, false };
+                yield return new object[] { TransportType.Amqp_Tcp_Only, 5_000, 4_000, true, false };
+                yield return new object[] { TransportType.Amqp_WebSocket_Only, 5_000, 4_000, true, false };
+
+                // 12. AMQP - short receive timeout
+                // CancellationToken: no
+                // Timeout: 100ms
+                // operations timeout: default (60s)
+                // forced cleanup: true
+                yield return new object[] { TransportType.Amqp_Tcp_Only, 50, -1, false, true };
+                yield return new object[] { TransportType.Amqp_WebSocket_Only, 50, -1, false, true };
             }
         }
 
